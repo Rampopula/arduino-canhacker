@@ -7,7 +7,7 @@
 class CanHackerLineReader {
     private:
         static const int COMMAND_MAX_LENGTH = 30; // not including \r\0
-        
+
         CanHacker *_canHacker;
         char buffer[COMMAND_MAX_LENGTH + 2];
         int index;

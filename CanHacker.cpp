@@ -34,31 +34,44 @@ static inline void _put_id(char *buf, int end_offset, canid_t id)
 #define put_sff_id(buf, id) _put_id(buf, 2, id)
 #define put_eff_id(buf, id) _put_id(buf, 7, id)
 
+#ifndef USE_ESP32_INTERNAL_CAN
 CanHacker::CanHacker(Stream *stream, Stream *debugStream, uint8_t cs) {
+#else
+CanHacker::CanHacker(Stream *stream, Stream *debugStream) {
+#endif
     _stream = stream;
     _debugStream = debugStream;
 
     writeDebugStream(F("Initialization\n"));
 
+#ifndef USE_ESP32_INTERNAL_CAN
     _cs = cs;
     mcp2515 = new MCP2515(_cs);
     mcp2515->reset();
     mcp2515->setConfigMode();
+#endif
 }
 
 CanHacker::~CanHacker() {
+#ifndef USE_ESP32_INTERNAL_CAN
     delete mcp2515;
+#else
+    CAN.end();
+#endif
 }
 
 Stream *CanHacker::getInterfaceStream() {
     return _stream;
 }
 
+#ifndef USE_ESP32_INTERNAL_CAN
 void CanHacker::setClock(CAN_CLOCK clock){
     canClock = clock;
 }
+#endif
 
 CanHacker::ERROR CanHacker::connectCan() {
+#ifndef USE_ESP32_INTERNAL_CAN
     MCP2515::ERROR error = mcp2515->setBitrate(bitrate, canClock);
     if (error != MCP2515::ERROR_OK) {
         writeDebugStream(F("setBitrate error:\n"));
@@ -78,14 +91,29 @@ CanHacker::ERROR CanHacker::connectCan() {
     if (error != MCP2515::ERROR_OK) {
         return ERROR_MCP2515_INIT_SET_MODE;
     }
+#else
+    if (!CAN.begin(bitrate)) {
+        writeDebugStream(F("setBitrate error\n"));
+        return ERROR_ESP32_CAN_INIT_BITRATE;
+    }
 
+    if (_loopback) {
+    //    CAN.loopback();
+    } else if (_listenOnly) {
+    //    CAN.observe();
+    }
+#endif
     _isConnected = true;
     return ERROR_OK;
 }
 
 CanHacker::ERROR CanHacker::disconnectCan() {
     _isConnected = false;
+#ifndef USE_ESP32_INTERNAL_CAN
     mcp2515->setConfigMode();
+#else
+    CAN.end();
+#endif
     return ERROR_OK;
 }
 
@@ -94,9 +122,27 @@ bool CanHacker::isConnected() {
 }
 
 CanHacker::ERROR CanHacker::writeCan(const struct can_frame *frame) {
+#ifndef USE_ESP32_INTERNAL_CAN
     if (mcp2515->sendMessage(frame) != MCP2515::ERROR_OK) {
         return ERROR_MCP2515_SEND;
     }
+#else
+    int ret = ERROR_OK;
+    bool extended = (frame->can_id & CAN_EFF_FLAG);
+    bool rtr = (frame->can_id & CAN_RTR_FLAG);
+    uint32_t id = (frame->can_id & (extended ? CAN_EFF_MASK : CAN_SFF_MASK));
+
+    if (extended) {
+        ret = CAN.beginExtendedPacket(id, frame->can_dlc, rtr);
+    } else {
+        ret = CAN.beginPacket(id, frame->can_dlc, rtr);
+    }
+
+    if (!ret)
+        return ERROR_ESP32_CAN_SEND;
+    if (!CAN.write(frame->data, frame->can_dlc) || !CAN.endPacket())
+        return ERROR_ESP32_CAN_SEND;
+#endif
 
     return ERROR_OK;
 }
@@ -105,7 +151,7 @@ CanHacker::ERROR CanHacker::pollReceiveCan() {
     if (!isConnected()) {
         return ERROR_OK;
     }
-
+#ifndef USE_ESP32_INTERNAL_CAN
     while (mcp2515->checkReceive()) {
         struct can_frame frame;
         if (mcp2515->readMessage(&frame) != MCP2515::ERROR_OK) {
@@ -117,10 +163,36 @@ CanHacker::ERROR CanHacker::pollReceiveCan() {
             return error;
         }
     }
+#else
+    struct can_frame frame;
+	long packet_size = CAN.parsePacket();
+
+	if (packet_size && CAN.packetId() != -1) {
+		frame.can_id = CAN.packetId();
+
+		if (CAN.packetExtended())
+			frame.can_id |= CAN_EFF_FLAG;
+
+		if (CAN.packetRtr()) {
+			frame.can_id |= CAN_RTR_FLAG;
+			frame.can_dlc = CAN.packetDlc();
+		} else {
+			frame.can_dlc = 0;
+			while (CAN.available()) {
+				frame.data[frame.can_dlc++] = CAN.read();
+			}
+		}
+
+		ERROR error = receiveCanFrame(&frame);
+		if (error != ERROR_OK) {
+			return error;
+		}
+	}
+#endif
 
     return ERROR_OK;
 }
-
+#ifndef USE_ESP32_INTERNAL_CAN
 CanHacker::ERROR CanHacker::receiveCan(const MCP2515::RXBn rxBuffer) {
     if (!isConnected()) {
         return ERROR_OK;
@@ -138,10 +210,13 @@ CanHacker::ERROR CanHacker::receiveCan(const MCP2515::RXBn rxBuffer) {
 
     return receiveCanFrame(&frame);
 }
+#endif
 
+#ifndef USE_ESP32_INTERNAL_CAN
 MCP2515 *CanHacker::getMcp2515() {
     return mcp2515;
 }
+#endif
 
 uint16_t CanHacker::getTimestamp() {
     return millis() % TIMESTAMP_LIMIT;
@@ -220,6 +295,7 @@ CanHacker::ERROR CanHacker::processInterrupt() {
         return ERROR_NOT_CONNECTED;
     }
 
+#ifndef USE_ESP32_INTERNAL_CAN
     uint8_t irq = mcp2515->getInterrupts();
 
     if (irq & MCP2515::CANINTF_ERRIF) {
@@ -266,6 +342,9 @@ CanHacker::ERROR CanHacker::processInterrupt() {
         //return ERROR_MCP2515_MERRF;
         mcp2515->clearInterrupts();
     }
+#else
+    /* TODO Not supported for now */
+#endif
 
     return ERROR_OK;
 }
@@ -276,6 +355,7 @@ CanHacker::ERROR CanHacker::setFilter(const uint32_t filter) {
         return ERROR_CONNECTED;
     }
 
+#ifndef USE_ESP32_INTERNAL_CAN
     MCP2515::RXF filters[] = {MCP2515::RXF0, MCP2515::RXF1, MCP2515::RXF2, MCP2515::RXF3, MCP2515::RXF4, MCP2515::RXF5};
     for (int i=0; i<6; i++) {
         MCP2515::ERROR result = mcp2515->setFilter(filters[i], false, filter);
@@ -283,6 +363,9 @@ CanHacker::ERROR CanHacker::setFilter(const uint32_t filter) {
             return ERROR_MCP2515_FILTER;
         }
     }
+#else
+    CAN.filter(filter);
+#endif
 
     return ERROR_OK;
 }
@@ -293,6 +376,7 @@ CanHacker::ERROR CanHacker::setFilterMask(const uint32_t mask) {
         return ERROR_CONNECTED;
     }
 
+#ifndef USE_ESP32_INTERNAL_CAN
     MCP2515::MASK masks[] = {MCP2515::MASK0, MCP2515::MASK1};
     for (int i=0; i<2; i++) {
         MCP2515::ERROR result = mcp2515->setFilterMask(masks[i], false, mask);
@@ -300,6 +384,9 @@ CanHacker::ERROR CanHacker::setFilterMask(const uint32_t mask) {
             return ERROR_MCP2515_FILTER;
         }
     }
+#else
+    CAN.filterMask(mask);
+#endif
 
     return ERROR_OK;
 }

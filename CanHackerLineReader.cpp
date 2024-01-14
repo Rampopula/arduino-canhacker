@@ -12,7 +12,7 @@ CanHacker::ERROR CanHackerLineReader::processChar(char rxChar) {
         case '\n':
             if (index > 0) {
                 buffer[index] = '\0';
-            
+
                 CanHacker::ERROR error = _canHacker->receiveCommand(buffer, index);
                 index = 0;
                 if (error != CanHacker::ERROR_OK) {
@@ -20,10 +20,10 @@ CanHacker::ERROR CanHackerLineReader::processChar(char rxChar) {
                 }
             }
             break;
-  
+
         case '\0':
             break;
-  
+
         default:
             if (index < COMMAND_MAX_LENGTH) {
                 buffer[index++] = rxChar;
@@ -44,6 +44,6 @@ CanHacker::ERROR CanHackerLineReader::process() {
             return error;
         }
     }
-    
+
     return CanHacker::ERROR_OK;
 }

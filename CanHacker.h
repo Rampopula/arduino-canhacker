@@ -7,8 +7,13 @@
 #ifndef CANHACKER_H_
 #define CANHACKER_H_
 
+#ifndef USE_ESP32_INTERNAL_CAN
 #include <can.h>
 #include <mcp2515.h>
+#else
+#include <CAN.h>
+#include <stdint.h>
+#endif
 
 #define CAN_MIN_DLEN 1
 #define HEX_PER_BYTE 2
@@ -22,6 +27,45 @@
 #define CANHACKER_SW_VERSION_RESPONSE "v0107\r"
 #define CANHACKER_VERSION_RESPONSE    "V1010\r"
 
+#ifdef USE_ESP32_INTERNAL_CAN
+#define CAN_MAX_DLEN 8
+
+/* special address description flags for the CAN_ID */
+#define CAN_EFF_FLAG 0x80000000UL /* EFF/SFF is set in the MSB */
+#define CAN_RTR_FLAG 0x40000000UL /* remote transmission request */
+#define CAN_ERR_FLAG 0x20000000UL /* error message frame */
+
+/* valid bits in CAN ID for frame formats */
+#define CAN_SFF_MASK 0x000007FFUL /* standard frame format (SFF) */
+#define CAN_EFF_MASK 0x1FFFFFFFUL /* extended frame format (EFF) */
+#define CAN_ERR_MASK 0x1FFFFFFFUL /* omit EFF, RTR, ERR flags */
+
+#define CAN_10KBPS		10E3
+#define CAN_20KBPS		20E3
+#define CAN_40KBPS		40E3
+#define CAN_50KBPS		50E3
+#define CAN_80KBPS		80E3
+#define CAN_100KBPS		100E3
+#define CAN_125KBPS		125E3
+#define CAN_200KBPS		200E3
+#define CAN_250KBPS		250E3
+#define CAN_500KBPS		500E3
+#define CAN_1000KBPS	1000E3
+
+typedef unsigned char __u8;
+typedef unsigned short __u16;
+typedef unsigned long __u32;
+
+typedef __u32 canid_t;
+typedef long CAN_SPEED;
+
+struct can_frame {
+    canid_t can_id;  /* 32 bit CAN_ID + EFF/RTR/ERR flags */
+    __u8    can_dlc; /* frame payload length in byte (0 .. CAN_MAX_DLEN) */
+    __u8    data[CAN_MAX_DLEN] __attribute__((aligned(8)));
+};
+#endif
+
 class CanHacker {
     public:
         enum ERROR {
@@ -34,6 +78,7 @@ class CanHacker {
             ERROR_BUFFER_OVERFLOW,
             ERROR_SERIAL_TX_OVERRUN,
             ERROR_LISTEN_ONLY,
+#ifndef USE_ESP32_INTERNAL_CAN
             ERROR_MCP2515_INIT,
             ERROR_MCP2515_INIT_CONFIG,
             ERROR_MCP2515_INIT_BITRATE,
@@ -43,19 +88,33 @@ class CanHacker {
             ERROR_MCP2515_FILTER,
             ERROR_MCP2515_ERRIF,
             ERROR_MCP2515_MERRF
+#else
+			ERROR_ESP32_CAN_INIT_BITRATE,
+			ERROR_ESP32_CAN_SEND
+#endif
         };
 
+#ifndef USE_ESP32_INTERNAL_CAN
         CanHacker(Stream *stream, Stream *debugStream, uint8_t cs);
+#else
+		CanHacker(Stream *stream, Stream *debugStream);
+#endif
         ~CanHacker();
+#ifndef USE_ESP32_INTERNAL_CAN
         void setClock(const CAN_CLOCK clock);
+#endif
         ERROR receiveCommand(const char *buffer, const int length);
         ERROR receiveCanFrame(const struct can_frame *frame);
         ERROR sendFrame(const struct can_frame *);
         ERROR enableLoopback();
         ERROR disableLoopback();
         ERROR pollReceiveCan();
+#ifndef USE_ESP32_INTERNAL_CAN
         ERROR receiveCan(const MCP2515::RXBn rxBuffer);
         MCP2515 *getMcp2515();
+#else
+		ERROR receiveCan();
+#endif
         ERROR processInterrupt();
         Stream *getInterfaceStream();
 
@@ -64,13 +123,16 @@ class CanHacker {
         static const char CR  = '\r';
         static const char BEL = 7;
         static const uint16_t TIMESTAMP_LIMIT = 0xEA60;
-
+#ifndef USE_ESP32_INTERNAL_CAN
         CAN_CLOCK canClock = MCP_16MHZ;
+#endif
         bool _timestampEnabled = false;
         bool _listenOnly = false;
         bool _loopback = false;
         uint8_t _cs;
+#ifndef USE_ESP32_INTERNAL_CAN
         MCP2515 *mcp2515;
+#endif
         CAN_SPEED bitrate;
         bool _isConnected = false;
         Stream *_stream;

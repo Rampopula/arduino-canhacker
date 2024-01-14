@@ -1,37 +1,16 @@
-# CanHacker (lawicel) CAN adapter on Arduino + MCP2515
+# CanHacker (lawicel) CAN adapter on ESP32 + generic CAN
 
-Use that [Library](https://github.com/autowp/arduino-mcp2515) to communicate with MCP2515
+Fork from [autowp/arduino-canhacker]([https://github.com/autowp/arduino-mcp2515](https://github.com/autowp/arduino-canhacker)).
 
-## Features
+Selection of CAN controller is performed by define USE_ESP32_INTERNAL_CAN
 
-Implement communication with CAN bus via MCP2515 by CanHacker (lawicel) protocol.
+The Main features are preserved, but there are some issues:
+- no interrupt mode, only polling
+- no loopback mode
+- no listen-only mode
+- bad CAN bitrate calculation (125kbps is 250kbps, 250kbps is 500kbps and so on)
+- to keep original code, the ESP32SJA1000Class::filterMask() should be
+  separated to two functions for setting filter and mask. And there is
+  still issues with it. Anyway, this code needs to rework.
 
-- send & receive can frames
-- supports standart (11 bit) & extended (29 bit) frames
-- supports remote frames (RTR)
-- supports filter by ID (mask + code)
-- interface using [Stream](https://www.arduino.cc/en/Reference/Stream): ability to work with Serial, SoftwareSerial, Ethernet and other
-- supported can baudrates from 10Kbps up to 1Mbps
-- supported modules with different oscillators (8, 16, 20 MHz), 16 MHz is default, use setClock if your oscillator is not 16MHz
-- support [CanHacker](http://www.mictronics.de/projects/usb-can-bus/) (application for Windows)
-- support [CANreader](https://github.com/autowp/CANreader) (application for Android)
-
-## Documentation
-
-[English](docs/en/)
-
-[Русский](docs/ru/)
-
-## Library Installation
-
-1. Install [MCP2515 Library](https://github.com/autowp/arduino-mcp2515)
-2. Download the ZIP file from https://github.com/autowp/arduino-canhacker/archive/master.zip
-3. From the Arduino IDE: Sketch -> Include Library... -> Add .ZIP Library...
-4. Restart the Arduino IDE to see the new "canhacker" library with examples
-
-Testes with Arduino Nano.
-On Arduino Uno have problem with too long boot period and losing first command
-
-## Contributing
-
-Feel free to open issues, create pull requests and other contributions
+![custom-device](custom-device.png)
